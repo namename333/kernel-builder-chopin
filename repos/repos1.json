@@ -2,8 +2,8 @@
   {
     "kernelSource": {
       "name": "chopin-KernelSU-release",
-      "repo": "https://github.com/lyc8503/kernel_xiaomi_chopin",
-      "branch": "main",
+      "repo": "https://github.com/ChopinKernels/kernel_xiaomi_chopin",
+      "branch": "lineage-19.1",
       "device": "chopin",
       "defconfig": "chopin_defconfig"
     },
