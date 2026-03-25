@@ -3,7 +3,7 @@
     "kernelSource": {
       "name": "chopin-KernelSU-release",
       "repo": "https://github.com/ChopinKernels/kernel_xiaomi_chopin",
-      "branch": "lineage-19.1",
+      "branch": "r",
       "device": "chopin",
       "defconfig": "chopin_defconfig"
     },
