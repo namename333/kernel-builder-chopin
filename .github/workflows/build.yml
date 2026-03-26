@@ -196,13 +196,16 @@ jobs:
       - name: "Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          # 只修复函数定义/声明，即有小写字母返回类型关键字开头的行
-          # 排除：全大写宏调用如 BLANK()、OFFSET() 等
-          # 正则: 行首是 void/int/char/long/bool/static/struct + 空格 + 函数名 + ()
+          HWCONF="arch/arm64/kernel/hwconf_manager.c"
+          if [ -f "$HWCONF" ]; then
+            sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' "$HWCONF"
+            echo "Fixed hwconf_manager.c"
+          fi
           find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | while read file; do
-            if grep -qE '^[[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*\*?)[[:space:]]+[a-z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*(\{|;)' "$file" 2>/dev/null; then
-              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*[*]?)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
-              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*[*]?)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
+            [ "$file" = "$HWCONF" ] && continue
+            if grep -qE '^[[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*[\{;]' "$file" 2>/dev/null; then
+              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
+              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
             fi
           done
 
