@@ -131,10 +131,29 @@ jobs:
         run: |
           [ -d "./KernelSU" ] && rm -rf "./KernelSU"
           [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+
+          # 安装 KernelSU v1.0.5 (最后不含 hook/syscall_hook.h 的版本，兼容 Linux 4.14)
+          # main/v2.0+ 引入了 hook/syscall_fn_t，是 Linux 5.x 专有 API
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v1.0.5
+
+          KSU_DIR="drivers/kernelsu"
+
+          # 修复 1: 删除 MODULE_IMPORT_NS 宏 (Linux 4.14 不支持，5.4+ 才有)
+          find "$KSU_DIR" -name "*.c" -exec sed -i '/^MODULE_IMPORT_NS(/d' {} \;
+          echo "已删除 MODULE_IMPORT_NS 宏"
+
+          # 修复 2: strncpy_from_user_nofault 在 Linux 4.14 不存在 (5.10+ 才引入)
+          # 替换为 strncpy_from_user，功能等价但适用于 4.14
+          KERNEL_COMPAT="$KSU_DIR/kernel_compat.c"
+          if [ -f "$KERNEL_COMPAT" ]; then
+            sed -i 's/return strncpy_from_user_nofault(dst, unsafe_addr, count);/return strncpy_from_user(dst, unsafe_addr, count);/' "$KERNEL_COMPAT"
+            echo "已修复 strncpy_from_user_nofault -> strncpy_from_user"
+          fi
+
           echo "CONFIG_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
           echo "CONFIG_HAVE_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
           echo "CONFIG_KPROBE_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "KernelSU v1.0.5 installed and patched for Linux 4.14"
 
       - name: "Setup SuSFS"
         working-directory: ${{ env.KERNEL_NAME }}
@@ -142,49 +161,48 @@ jobs:
           arch: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.withKernelSU == 'true' }}
         run: |
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu || git clone --depth=1 https://github.com/simonpunk/susfs4ksu.git ../susfs4ksu
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu || \
+            git clone --depth=1 https://github.com/simonpunk/susfs4ksu.git ../susfs4ksu
           SUSFS_DIR="../susfs4ksu"
           PATCH_FILE=$(find "$SUSFS_DIR" -name "*4.14*.patch" 2>/dev/null | head -1)
           [ -z "$PATCH_FILE" ] && PATCH_FILE=$(find "$SUSFS_DIR" -name "add_susfs_in_kernel*.patch" 2>/dev/null | head -1)
           if [ -n "$PATCH_FILE" ]; then
-            patch -p1 --forward < "$PATCH_FILE" && echo "SuSFS patch applied" || echo "SuSFS patch already applied"
+            patch -p1 --forward < "$PATCH_FILE" && echo "SuSFS patch applied" || echo "SuSFS patch skip"
           fi
           [ -d "$SUSFS_DIR/fs" ] && cp -r "$SUSFS_DIR/fs/"* fs/ 2>/dev/null || true
           [ -d "$SUSFS_DIR/include" ] && cp -r "$SUSFS_DIR/include/"* include/ 2>/dev/null || true
-          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'EOF'
-
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          EOF
+          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'DEFEOF'
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=y
+DEFEOF
 
       - name: "Apply RE Patches"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
           arch: ${{ steps.generate-args.outputs.ARCH }}
         run: |
-          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'EOF'
-
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_FTRACE=y
-          CONFIG_FUNCTION_TRACER=y
-          CONFIG_FUNCTION_GRAPH_TRACER=y
-          CONFIG_DYNAMIC_FTRACE=y
-          CONFIG_FTRACE_SYSCALLS=y
-          CONFIG_PERF_EVENTS=y
-          CONFIG_HW_PERF_EVENTS=y
-          CONFIG_USERFAULTFD=y
-          CONFIG_DEBUG_INFO=y
-          CONFIG_FRAME_POINTER=y
-          EOF
+          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'DEFEOF'
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_FTRACE=y
+CONFIG_FUNCTION_TRACER=y
+CONFIG_FUNCTION_GRAPH_TRACER=y
+CONFIG_DYNAMIC_FTRACE=y
+CONFIG_FTRACE_SYSCALLS=y
+CONFIG_PERF_EVENTS=y
+CONFIG_HW_PERF_EVENTS=y
+CONFIG_USERFAULTFD=y
+CONFIG_DEBUG_INFO=y
+CONFIG_FRAME_POINTER=y
+DEFEOF
           YAMA="security/yama/yama_lsm.c"
           if [ -f "$YAMA" ]; then
             sed -i 's/static int ptrace_scope = 1;/static int ptrace_scope = 0;/' "$YAMA"
@@ -194,30 +212,19 @@ jobs:
       - name: "Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          echo "=== 阶段 1: 修复 hwconf_manager.c ==="
-          if grep -q "hw_item_dump()" arch/arm64/kernel/hwconf_manager.c 2>/dev/null; then
-            sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' arch/arm64/kernel/hwconf_manager.c
-            echo "✅ Fixed hwconf_manager.c"
-          fi
-          
-          echo "=== 阶段 2: 扫描所有可能的空参数函数 ==="
+          echo "=== 修复 Clang 15 空参数 -Wstrict-prototypes 错误 ==="
           find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | while read file; do
-            if grep -qE '\b[a-zA-Z_][a-zA-Z0-9_]*\s*\(\)\s*\{' "$file"; then
-              echo "发现问题文件: $file"
-              sed -i -E 's/^([[:space:]]*(static[[:space:]]+)?(inline[[:space:]]+)?([a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+[*]?)+[a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
-              echo "  ✅ 已修复"
+            changed=0
+            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*\{' "$file" 2>/dev/null; then
+              sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
+              changed=1
             fi
+            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*;' "$file" 2>/dev/null; then
+              sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
+              changed=1
+            fi
+            [ $changed -eq 1 ] && echo "Fixed: $file"
           done
-          
-          echo "=== 阶段 3: 特殊处理 xiaomi_touch.c ==="
-          XIAOMI_TOUCH="drivers/input/touchscreen/xiaomi/xiaomi_touch.c"
-          if [ -f "$XIAOMI_TOUCH" ]; then
-            sed -i -E 's/^([[:space:]]*(static[[:space:]]+)?(inline[[:space:]]+)?[a-zA-Z_][a-zA-Z0-9_*[:space:]]+)[[:space:]]*\(\)[[:space:]]*$/\1(void)/g' "$XIAOMI_TOUCH"
-            echo "✅ Fixed xiaomi_touch.c (函数声明)"
-            sed -i -E 's/^([[:space:]]*(static[[:space:]]+)?(inline[[:space:]]+)?[a-zA-Z_][a-zA-Z0-9_*[:space:]]+)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$XIAOMI_TOUCH"
-            echo "✅ Fixed xiaomi_touch.c (函数定义)"
-          fi
-          
           echo "=== 修复完成 ==="
 
       - name: "Make defconfig"
