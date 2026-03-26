@@ -5,9 +5,6 @@ on:
   push:
     branches:
       - chopin1
-    paths:
-      - '.github/workflows/build.yml'
-      - 'repos/**'
 
 env:
   OUT_DIR: "${{ github.workspace }}/out"
@@ -145,106 +142,66 @@ jobs:
           arch: ${{ steps.generate-args.outputs.ARCH }}
         if: ${{ env.withKernelSU == 'true' }}
         run: |
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu \
-            || git clone --depth=1 https://github.com/simonpunk/susfs4ksu.git ../susfs4ksu
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu || git clone --depth=1 https://github.com/simonpunk/susfs4ksu.git ../susfs4ksu
           SUSFS_DIR="../susfs4ksu"
-          echo "SuSFS structure:"
-          find "$SUSFS_DIR" -maxdepth 3 -name "*.patch" | head -10
-          # 找合适的补丁
           PATCH_FILE=$(find "$SUSFS_DIR" -name "*4.14*.patch" 2>/dev/null | head -1)
           [ -z "$PATCH_FILE" ] && PATCH_FILE=$(find "$SUSFS_DIR" -name "add_susfs_in_kernel*.patch" 2>/dev/null | head -1)
           if [ -n "$PATCH_FILE" ]; then
-            patch -p1 --forward < "$PATCH_FILE" && echo "SuSFS patch OK" || echo "SuSFS patch already applied or failed"
-          else
-            echo "No patch found, trying direct file copy only"
+            patch -p1 --forward < "$PATCH_FILE" && echo "SuSFS patch applied" || echo "SuSFS patch already applied"
           fi
           [ -d "$SUSFS_DIR/fs" ] && cp -r "$SUSFS_DIR/fs/"* fs/ 2>/dev/null || true
           [ -d "$SUSFS_DIR/include" ] && cp -r "$SUSFS_DIR/include/"* include/ 2>/dev/null || true
-          # 添加 SuSFS configs
-          {
-            echo ""
-            echo "CONFIG_KSU_SUSFS=y"
-            echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
-            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
-            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-            echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y"
-            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
-            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
-            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
-            echo "CONFIG_KSU_SUSFS_SUS_SU=y"
-          } >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "SuSFS configs added"
+          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'EOF'
+
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
+          EOF
 
       - name: "Apply RE Patches"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
           arch: ${{ steps.generate-args.outputs.ARCH }}
         run: |
-          # 逆向工程增强配置
-          {
-            echo ""
-            echo "CONFIG_KALLSYMS=y"
-            echo "CONFIG_KALLSYMS_ALL=y"
-            echo "CONFIG_FTRACE=y"
-            echo "CONFIG_FUNCTION_TRACER=y"
-            echo "CONFIG_FUNCTION_GRAPH_TRACER=y"
-            echo "CONFIG_DYNAMIC_FTRACE=y"
-            echo "CONFIG_FTRACE_SYSCALLS=y"
-            echo "CONFIG_PERF_EVENTS=y"
-            echo "CONFIG_HW_PERF_EVENTS=y"
-            echo "CONFIG_USERFAULTFD=y"
-            echo "CONFIG_DEBUG_INFO=y"
-            echo "CONFIG_FRAME_POINTER=y"
-          } >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'EOF'
 
-          # 修复 ptrace_scope 默认值（Frida 附加任意进程）
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_FTRACE=y
+          CONFIG_FUNCTION_TRACER=y
+          CONFIG_FUNCTION_GRAPH_TRACER=y
+          CONFIG_DYNAMIC_FTRACE=y
+          CONFIG_FTRACE_SYSCALLS=y
+          CONFIG_PERF_EVENTS=y
+          CONFIG_HW_PERF_EVENTS=y
+          CONFIG_USERFAULTFD=y
+          CONFIG_DEBUG_INFO=y
+          CONFIG_FRAME_POINTER=y
+          EOF
           YAMA="security/yama/yama_lsm.c"
           if [ -f "$YAMA" ]; then
             sed -i 's/static int ptrace_scope = 1;/static int ptrace_scope = 0;/' "$YAMA"
-            sed -i 's/static int ptrace_scope = YAMA_SCOPE_RELATIONAL;/static int ptrace_scope = YAMA_SCOPE_DISABLED;/' "$YAMA"
-            echo "ptrace_scope patched"
+            echo "ptrace_scope patched to 0"
           fi
-          echo "RE patches applied"
 
       - name: "Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          # 修复 hwconf_manager.c
           if grep -q "hw_item_dump()" arch/arm64/kernel/hwconf_manager.c 2>/dev/null; then
             sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' arch/arm64/kernel/hwconf_manager.c
-            echo "hwconf fixed"
+            echo "Fixed hwconf_manager.c"
           fi
-          # 批量修复空参数列表
-          python3 - << 'PYEOF'
-import os, re
-P = re.compile(
-    r'^((?:static\s+)?(?:inline\s+)?(?:__init\s+)?'
-    r'(?:int|void|char|long|bool|unsigned\s*\w*|struct\s+\w+\s*\*?|char\s*\*)'
-    r'\s+\w+)\(\)(\s*(?:\{|;))',
-    re.MULTILINE
-)
-n = 0
-for d in ['arch/arm64/kernel', 'drivers', 'kernel', 'fs', 'mm']:
-    if not os.path.exists(d):
-        continue
-    for root, dirs, files in os.walk(d):
-        dirs[:] = [x for x in dirs if x not in ['scripts', '.git']]
-        for f in files:
-            if not (f.endswith('.c') or f.endswith('.h')):
-                continue
-            fp = os.path.join(root, f)
-            try:
-                c = open(fp, encoding='utf-8', errors='ignore').read()
-                nc = P.sub(r'\1(void)\2', c)
-                if nc != c:
-                    open(fp, 'w', encoding='utf-8').write(nc)
-                    n += 1
-                    print(f'Fixed: {fp}')
-            except Exception:
-                pass
-print(f'Total fixed: {n} files')
-PYEOF
+          find arch/arm64/kernel drivers kernel fs mm -name "*.c" -exec grep -l "() {$" {} \; 2>/dev/null | while read f; do
+            sed -i -E 's/^((static\s+)?(inline\s+)?(int|void|char|long|bool|unsigned\s*\w*|struct\s+\w+\s*\*?)\s+\w+)\(\) \{/\1(void) {/' "$f"
+          done
+          echo "Prototype fix done"
 
       - name: "Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
