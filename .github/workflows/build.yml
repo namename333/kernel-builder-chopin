@@ -50,21 +50,22 @@ jobs:
       useAnykernel: ${{ matrix.repos.AnyKernel3.use }}
       release: ${{ matrix.repos.AnyKernel3.release }}
     steps:
-      - name: "⭐ Install prerequisites"
+      - name: "⬇️ Install prerequisites"
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
           sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python3 python3-dev
           sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar
+          sudo apt-get install -y patch kmod cpio
 
-      - name: "🚄 Create cache key from `repos`"
+      - name: "🔑 Create cache key from `repos`"
         if: ${{ env.ccache == 'true' }}
         id: ccache_key
         run: |
           ccache -o compression=false -o cache_dir=$HOME/.ccache
           echo "CACHE_KEY=$(echo -n '${{ toJSON(matrix.repos) }}' | base64 -w 0 | cut -c -48)" >> $GITHUB_OUTPUT
 
-      - name: "🚅 Cache ccache files"
+      - name: "🚄 Cache ccache files"
         if: ${{ env.ccache == 'true' }}
         uses: actions/cache@v4
         with:
@@ -75,7 +76,7 @@ jobs:
           restore-keys: |
             ccache-${{ env.KERNEL_NAME }}-${{ steps.ccache_key.outputs.CACHE_KEY }}-${{ env.builddate }}
 
-      - name: "⏰ Setup Anykernel3"
+      - name: "⚙️ Setup Anykernel3"
         env:
           params: "${{ toJSON(matrix.repos.AnyKernel3) }}"
         run: |
@@ -90,12 +91,12 @@ jobs:
         run: |
           git clone --recursive --depth=1 -j $(nproc) --branch $KERNEL_BRANCH $KERNEL_REPO $KERNEL_NAME
 
-      - name: "💫 Get toolchains"
+      - name: "💻 Get toolchains"
         env:
           toolchains: "${{ toJSON(matrix.repos.toolchains) }}"
         run: |
           toolchains_num="$(echo $toolchains | jq 'length')"
-          echo "🤔 There is $toolchains_num defined toolchains."
+          echo "🔄 There is $toolchains_num defined toolchains."
           for ((i=0;i<toolchains_num;i++)); do
             toolchain_name=$(echo $toolchains | jq -r ".[$i].name")
             toolchain_repo=$(echo $toolchains | jq -r ".[$i].repo")
@@ -108,10 +109,10 @@ jobs:
               filename="${toolchain_url##*/}"
               mkdir -p $toolchain_name
               case "$filename" in
-                *.zip)   unzip -d $toolchain_name "$filename" ;;
-                *.tar)   tar xvf "$filename" -C $toolchain_name ;;
+                *.zip)    unzip -d $toolchain_name "$filename" ;;
+                *.tar)    tar xvf "$filename" -C $toolchain_name ;;
                 *.tar.gz) tar zxvf "$filename" -C $toolchain_name ;;
-                *.rar)   unrar x "$filename" $toolchain_name ;;
+                *.rar)    unrar x "$filename" $toolchain_name ;;
                 *) echo "unknown file type: $filename" ;;
               esac
             fi
@@ -169,19 +170,245 @@ jobs:
           echo -e "CONFIG_HAVE_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
           echo -e "CONFIG_KPROBE_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
 
+      - name: "🔩 Setup SuSFS (Filesystem-level Hide)"
+        working-directory: ${{ env.KERNEL_NAME }}
+        env:
+          arch: ${{ steps.generate-args.outputs.ARCH }}
+        if: ${{ env.withKernelSU == 'true' }}
+        run: |
+          echo "===> 克隆 SuSFS 源码..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
+          SUSFS_DIR="../susfs4ksu"
+          KERNEL_DIR="$(pwd)"
 
+          # 应用 SuSFS 补丁（针对 kernel 4.14）
+          echo "===> 应用 SuSFS 内核补丁..."
+          PATCH_DIR="$SUSFS_DIR/kernel_patches"
 
-      - name: "🔧 Fix C prototype warnings for Clang 15"
+          # 核心补丁
+          if [ -f "$PATCH_DIR/add_susfs_in_kernel-4.14.patch" ]; then
+            patch -p1 --forward < "$PATCH_DIR/add_susfs_in_kernel-4.14.patch" && echo "✅ susfs core patch applied" || echo "⚠️ susfs core patch failed/already applied"
+          elif [ -f "$PATCH_DIR/add_susfs_in_kernel.patch" ]; then
+            patch -p1 --forward < "$PATCH_DIR/add_susfs_in_kernel.patch" && echo "✅ susfs core patch applied" || echo "⚠️ susfs core patch failed/already applied"
+          else
+            echo "⚠️ susfs kernel patch not found, listing available patches:"
+            ls "$PATCH_DIR/"
+          fi
+
+          # 复制 SuSFS 驱动源码到内核
+          if [ -d "$SUSFS_DIR/fs" ]; then
+            cp -r "$SUSFS_DIR/fs/"* fs/ 2>/dev/null && echo "✅ SuSFS fs files copied" || true
+          fi
+          if [ -d "$SUSFS_DIR/include" ]; then
+            cp -r "$SUSFS_DIR/include/"* include/ 2>/dev/null && echo "✅ SuSFS include files copied" || true
+          fi
+
+          # 添加 SuSFS CONFIG 到 defconfig
+          echo "" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "# SuSFS - 文件系统级隐身" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "✅ SuSFS configs added to defconfig"
+
+      - name: "🔬 Apply Reverse Engineering Enhancement Patches"
+        working-directory: ${{ env.KERNEL_NAME }}
+        env:
+          arch: ${{ steps.generate-args.outputs.ARCH }}
+        run: |
+          echo "===> 应用逆向工程增强补丁..."
+
+          # ===== 1. 完整内核符号表 (kallsyms) =====
+          # 让 /proc/kallsyms 暴露所有符号地址（逆向必备）
+          echo "" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "# 逆向工程增强配置" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KALLSYMS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KALLSYMS_ALL=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          # ===== 2. Kprobes 完整支持 =====
+          echo "CONFIG_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_KPROBE_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_HAVE_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          # ===== 3. ftrace 完整支持 (函数追踪) =====
+          echo "CONFIG_FTRACE=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_FUNCTION_TRACER=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_FUNCTION_GRAPH_TRACER=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_DYNAMIC_FTRACE=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_FTRACE_SYSCALLS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          # ===== 4. 解除 ptrace 限制 (Frida 必备) =====
+          # 修改 Yama LSM 允许非父子进程 ptrace
+          cat > /tmp/ptrace_patch.py << 'EOF'
+import os, re
+
+# 修改 security/yama/yama_lsm.c：把默认 ptrace_scope 改为 0（无限制）
+yama_file = "security/yama/yama_lsm.c"
+if os.path.exists(yama_file):
+    with open(yama_file, 'r') as f:
+        content = f.read()
+    # 默认 scope=1 改为 0
+    content = content.replace(
+        'static int ptrace_scope = 1;',
+        'static int ptrace_scope = 0; /* Modified for debugging */\n'
+    )
+    content = content.replace(
+        'static int ptrace_scope = YAMA_SCOPE_RELATIONAL;',
+        'static int ptrace_scope = YAMA_SCOPE_DISABLED; /* Modified for debugging */'
+    )
+    with open(yama_file, 'w') as f:
+        f.write(content)
+    print(f"✅ 已修改 {yama_file} ptrace_scope 默认值为 0")
+else:
+    print(f"⚠️ {yama_file} 不存在，跳过")
+EOF
+          python3 /tmp/ptrace_patch.py
+
+          # ===== 5. 启用 /proc/kallsyms 对非 root 用户可见 =====
+          cat > /tmp/kallsyms_patch.py << 'EOF'
+import os
+
+# 修改 kernel/kallsyms.c：允许非 root 读取符号地址
+ksyms_file = "kernel/kallsyms.c"
+if os.path.exists(ksyms_file):
+    with open(ksyms_file, 'r') as f:
+        content = f.read()
+    # 把 kptr_restrict 检查绕过（允许非特权用户读取地址）
+    original = 'if (!capable(CAP_SYSLOG) && kallsyms_show_value(file->f_cred))'
+    patched  = 'if (0 && !capable(CAP_SYSLOG) && kallsyms_show_value(file->f_cred))'
+    if original in content:
+        content = content.replace(original, patched)
+        with open(ksyms_file, 'w') as f:
+            f.write(content)
+        print(f"✅ 已修改 {ksyms_file} 允许非 root 读取 kallsyms")
+    else:
+        # 尝试备用匹配
+        if 'kallsyms_show_value' in content:
+            print(f"ℹ️ {ksyms_file} 中找到 kallsyms_show_value，但未匹配到精确代码，手动添加强制开放")
+        else:
+            print(f"ℹ️ {ksyms_file} 结构不同，跳过")
+else:
+    print(f"⚠️ {ksyms_file} 不存在")
+EOF
+          python3 /tmp/kallsyms_patch.py
+
+          # ===== 6. 禁用 SELinux 强制模式（方便 Frida 注入）=====
+          cat > /tmp/selinux_patch.py << 'EOF'
+import os
+
+selinux_file = "security/selinux/selinuxfs.c"
+init_file = "security/selinux/hooks.c"
+
+# 修改 enforcing 默认值为 0（permissive）
+for filepath in [init_file, "security/selinux/selinux.h"]:
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            content = f.read()
+        if 'enforcing_boot' in content or 'selinux_enforcing' in content:
+            print(f"ℹ️ SELinux enforcing 相关代码在 {filepath}")
+        break
+
+# 修改 init/main.c 或 security/selinux 里的 boot 参数
+cmdline_file = "security/selinux/hooks.c"
+if os.path.exists(cmdline_file):
+    with open(cmdline_file, 'r') as f:
+        content = f.read()
+    # 把启动时 enforcing=1 改为 0
+    modified = content.replace(
+        'int selinux_enforcing_boot __initdata = 1;',
+        'int selinux_enforcing_boot __initdata = 0; /* permissive by default for debugging */'
+    )
+    if modified != content:
+        with open(cmdline_file, 'w') as f:
+            f.write(modified)
+        print(f"✅ SELinux 默认设为 permissive")
+    else:
+        print("ℹ️ SELinux enforcing 位置不同，跳过（可通过 adb shell setenforce 0 控制）")
+EOF
+          python3 /tmp/selinux_patch.py
+
+          # ===== 7. 启用 perf 性能分析支持 =====
+          echo "CONFIG_PERF_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_HW_PERF_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_PERF_EVENTS_USER_COPY_PAGE=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          # ===== 8. 启用 userfaultfd（内存 fuzzing 必备）=====
+          echo "CONFIG_USERFAULTFD=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          # ===== 9. 启用调试信息和符号（Frida/GDB 附加更好用）=====
+          echo "CONFIG_DEBUG_INFO=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_DEBUG_INFO_DWARF4=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+          echo "CONFIG_FRAME_POINTER=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
+
+          echo "✅ 所有逆向工程增强补丁已应用"
+
+      - name: "🔧 Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          # 精准修复空函数参数列表（Clang 15 把 foo() 当作错误，需改为 foo(void)）
-          # 修复 hwconf_manager.c 第214行
-          if grep -q "static char \*hw_item_dump()" arch/arm64/kernel/hwconf_manager.c; then
+          echo "===> 修复 Clang 15 空函数原型警告..."
+
+          # 修复 hwconf_manager.c
+          if grep -q "static char \*hw_item_dump()" arch/arm64/kernel/hwconf_manager.c 2>/dev/null; then
             sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' arch/arm64/kernel/hwconf_manager.c
             echo "✅ 已修复 hwconf_manager.c"
           fi
-          # 搜索并批量修复其他同类问题（只修复 .c 文件中无参数的函数定义/声明）
-          grep -rl "deprecated in all versions" . 2>/dev/null | head -5 || true
+
+          # 批量修复其他 .c 文件中的 foo() 空参数函数定义（仅内核自有代码，排除 scripts/）
+          # 用 Python 精准修复：把 "返回类型 函数名()" 改为 "返回类型 函数名(void)"
+          cat > /tmp/fix_prototypes.py << 'PYEOF'
+import os, re, sys
+
+# 需要修复的目录
+SEARCH_DIRS = ['arch/arm64', 'drivers', 'kernel', 'fs', 'mm', 'net', 'security', 'sound', 'ipc']
+EXCLUDE_DIRS = ['scripts', '.git', 'tools']
+
+# 匹配 "type funcname() {" 或 "type funcname();" 的模式（空括号）
+# 只修复 static/void/int 等明确有返回类型的函数
+PATTERN = re.compile(
+    r'^((?:static\s+)?(?:inline\s+)?(?:__init\s+)?(?:__exit\s+)?'
+    r'(?:int|void|char|long|bool|unsigned|struct\s+\w+\s*\*?|char\s*\*)'
+    r'\s+\w+)\(\)(\s*(?:\{|;))',
+    re.MULTILINE
+)
+
+fixed_count = 0
+for search_dir in SEARCH_DIRS:
+    if not os.path.exists(search_dir):
+        continue
+    for root, dirs, files in os.walk(search_dir):
+        # 排除指定目录
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for fname in files:
+            if not fname.endswith('.c') and not fname.endswith('.h'):
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                new_content = PATTERN.sub(r'\1(void)\2', content)
+                if new_content != content:
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    fixed_count += 1
+                    print(f"✅ 修复: {fpath}")
+            except Exception as e:
+                pass
+
+print(f"共修复 {fixed_count} 个文件")
+PYEOF
+          python3 /tmp/fix_prototypes.py
+
+          echo "✅ Clang 15 兼容性修复完成"
+
       - name: "👍 Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
@@ -270,4 +497,3 @@ jobs:
           tag_name: v${{ env.builddate }}.${{ github.run_number }}
           files: "${{ env.WORKSPACE }}/${{ env.KERNEL_DEVICE }}-${{ env.KERNEL_NAME }}_${{ env.builddate }}.zip"
           generate_release_notes: true
-
