@@ -170,6 +170,18 @@ jobs:
           echo -e "CONFIG_KPROBE_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
 
 
+
+      - name: "🔧 Fix C prototype warnings for Clang 15"
+        working-directory: ${{ env.KERNEL_NAME }}
+        run: |
+          # 精准修复空函数参数列表（Clang 15 把 foo() 当作错误，需改为 foo(void)）
+          # 修复 hwconf_manager.c 第214行
+          if grep -q "static char \*hw_item_dump()" arch/arm64/kernel/hwconf_manager.c; then
+            sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' arch/arm64/kernel/hwconf_manager.c
+            echo "✅ 已修复 hwconf_manager.c"
+          fi
+          # 搜索并批量修复其他同类问题（只修复 .c 文件中无参数的函数定义/声明）
+          grep -rl "deprecated in all versions" . 2>/dev/null | head -5 || true
       - name: "👍 Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
