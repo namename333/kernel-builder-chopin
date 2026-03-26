@@ -191,16 +191,18 @@ jobs:
           YAMA="security/yama/yama_lsm.c"
           if [ -f "$YAMA" ]; then
             sed -i 's/static int ptrace_scope = 1;/static int ptrace_scope = 0;/' "$YAMA"
-            echo "ptrace_scope patched to 0"
           fi
 
       - name: "Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
+          # 只修复函数定义/声明，即有小写字母返回类型关键字开头的行
+          # 排除：全大写宏调用如 BLANK()、OFFSET() 等
+          # 正则: 行首是 void/int/char/long/bool/static/struct + 空格 + 函数名 + ()
           find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | while read file; do
-            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*[\{;]' "$file" 2>/dev/null; then
-              sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
-              sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
+            if grep -qE '^[[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*\*?)[[:space:]]+[a-z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*(\{|;)' "$file" 2>/dev/null; then
+              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*[*]?)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
+              sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned|struct[[:space:]]+[a-z_]+[[:space:]]*[*]?)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
             fi
           done
 
