@@ -12,7 +12,9 @@
       {
         "url": "https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260208-release/Clang-15.0.7-20260208.tar.gz",
         "name": "ZyC-clang",
-        "binPath": ["bin"]
+        "binPath": [
+          "bin"
+        ]
       }
     ],
     "ccache": false,
@@ -34,8 +36,7 @@
         "READELF": "ZyC-clang/bin/llvm-readelf",
         "STRIP": "ZyC-clang/bin/llvm-strip",
         "LLVM_AR": "ZyC-clang/bin/llvm-ar",
-        "LLVM_DIS": "ZyC-clang/bin/llvm-dis",
-        "KCFLAGS": "-Wno-error=strict-prototypes -Wno-error=implicit-function-declaration -Wno-error=deprecated-declarations"
+        "LLVM_DIS": "ZyC-clang/bin/llvm-dis"
       }
     },
     "AnyKernel3": {
