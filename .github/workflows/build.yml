@@ -131,29 +131,16 @@ jobs:
         run: |
           [ -d "./KernelSU" ] && rm -rf "./KernelSU"
           [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
-
-          # 安装 KernelSU v1.0.5 (最后不含 hook/syscall_hook.h 的版本，兼容 Linux 4.14)
-          # main/v2.0+ 引入了 hook/syscall_fn_t，是 Linux 5.x 专有 API
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v1.0.5
-
           KSU_DIR="drivers/kernelsu"
-
-          # 修复 1: 删除 MODULE_IMPORT_NS 宏 (Linux 4.14 不支持，5.4+ 才有)
           find "$KSU_DIR" -name "*.c" -exec sed -i '/^MODULE_IMPORT_NS(/d' {} \;
-          echo "已删除 MODULE_IMPORT_NS 宏"
-
-          # 修复 2: strncpy_from_user_nofault 在 Linux 4.14 不存在 (5.10+ 才引入)
-          # 替换为 strncpy_from_user，功能等价但适用于 4.14
-          KERNEL_COMPAT="$KSU_DIR/kernel_compat.c"
-          if [ -f "$KERNEL_COMPAT" ]; then
-            sed -i 's/return strncpy_from_user_nofault(dst, unsafe_addr, count);/return strncpy_from_user(dst, unsafe_addr, count);/' "$KERNEL_COMPAT"
-            echo "已修复 strncpy_from_user_nofault -> strncpy_from_user"
+          if [ -f "$KSU_DIR/kernel_compat.c" ]; then
+            sed -i 's/return strncpy_from_user_nofault(dst, unsafe_addr, count);/return strncpy_from_user(dst, unsafe_addr, count);/' "$KSU_DIR/kernel_compat.c"
           fi
-
-          echo "CONFIG_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_HAVE_KPROBES=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KPROBE_EVENTS=y" >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "KernelSU v1.0.5 installed and patched for Linux 4.14"
+          DEFCONFIG="arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
 
       - name: "Setup SuSFS"
         working-directory: ${{ env.KERNEL_NAME }}
@@ -171,38 +158,36 @@ jobs:
           fi
           [ -d "$SUSFS_DIR/fs" ] && cp -r "$SUSFS_DIR/fs/"* fs/ 2>/dev/null || true
           [ -d "$SUSFS_DIR/include" ] && cp -r "$SUSFS_DIR/include/"* include/ 2>/dev/null || true
-          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'DEFEOF'
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_SU=y
-DEFEOF
+          DEFCONFIG="arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> "$DEFCONFIG"
 
       - name: "Apply RE Patches"
         working-directory: ${{ env.KERNEL_NAME }}
         env:
           arch: ${{ steps.generate-args.outputs.ARCH }}
         run: |
-          cat >> arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }} << 'DEFEOF'
-CONFIG_KALLSYMS=y
-CONFIG_KALLSYMS_ALL=y
-CONFIG_FTRACE=y
-CONFIG_FUNCTION_TRACER=y
-CONFIG_FUNCTION_GRAPH_TRACER=y
-CONFIG_DYNAMIC_FTRACE=y
-CONFIG_FTRACE_SYSCALLS=y
-CONFIG_PERF_EVENTS=y
-CONFIG_HW_PERF_EVENTS=y
-CONFIG_USERFAULTFD=y
-CONFIG_DEBUG_INFO=y
-CONFIG_FRAME_POINTER=y
-DEFEOF
+          DEFCONFIG="arch/${{ env.arch }}/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_KALLSYMS=y" >> "$DEFCONFIG"
+          echo "CONFIG_KALLSYMS_ALL=y" >> "$DEFCONFIG"
+          echo "CONFIG_FTRACE=y" >> "$DEFCONFIG"
+          echo "CONFIG_FUNCTION_TRACER=y" >> "$DEFCONFIG"
+          echo "CONFIG_FUNCTION_GRAPH_TRACER=y" >> "$DEFCONFIG"
+          echo "CONFIG_DYNAMIC_FTRACE=y" >> "$DEFCONFIG"
+          echo "CONFIG_FTRACE_SYSCALLS=y" >> "$DEFCONFIG"
+          echo "CONFIG_PERF_EVENTS=y" >> "$DEFCONFIG"
+          echo "CONFIG_HW_PERF_EVENTS=y" >> "$DEFCONFIG"
+          echo "CONFIG_USERFAULTFD=y" >> "$DEFCONFIG"
+          echo "CONFIG_DEBUG_INFO=y" >> "$DEFCONFIG"
+          echo "CONFIG_FRAME_POINTER=y" >> "$DEFCONFIG"
           YAMA="security/yama/yama_lsm.c"
           if [ -f "$YAMA" ]; then
             sed -i 's/static int ptrace_scope = 1;/static int ptrace_scope = 0;/' "$YAMA"
@@ -212,20 +197,12 @@ DEFEOF
       - name: "Fix Clang 15 Prototype Warnings"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          echo "=== 修复 Clang 15 空参数 -Wstrict-prototypes 错误 ==="
           find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | while read file; do
-            changed=0
-            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*\{' "$file" 2>/dev/null; then
+            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*[\{;]' "$file" 2>/dev/null; then
               sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
-              changed=1
-            fi
-            if grep -qE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*;' "$file" 2>/dev/null; then
               sed -i -E 's/([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
-              changed=1
             fi
-            [ $changed -eq 1 ] && echo "Fixed: $file"
           done
-          echo "=== 修复完成 ==="
 
       - name: "Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
