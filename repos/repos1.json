@@ -34,7 +34,8 @@
         "READELF": "ZyC-clang/bin/llvm-readelf",
         "STRIP": "ZyC-clang/bin/llvm-strip",
         "LLVM_AR": "ZyC-clang/bin/llvm-ar",
-        "LLVM_DIS": "ZyC-clang/bin/llvm-dis"
+        "LLVM_DIS": "ZyC-clang/bin/llvm-dis",
+        "KCFLAGS": "-Wno-error=strict-prototypes -Wno-error=implicit-function-declaration -Wno-error=deprecated-declarations"
       }
     },
     "AnyKernel3": {
