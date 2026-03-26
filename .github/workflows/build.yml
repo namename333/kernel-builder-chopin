@@ -197,12 +197,20 @@ jobs:
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
           HWCONF="arch/arm64/kernel/hwconf_manager.c"
+          TOUCH="drivers/input/touchscreen/xiaomi/xiaomi_touch.c"
           if [ -f "$HWCONF" ]; then
             sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' "$HWCONF"
-            echo "Fixed hwconf_manager.c"
+            echo "Fixed $HWCONF"
           fi
-          find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | while read file; do
-            [ "$file" = "$HWCONF" ] && continue
+          if [ -f "$TOUCH" ]; then
+            sed -i 's/struct class \*get_xiaomi_touch_class()/struct class *get_xiaomi_touch_class(void)/g' "$TOUCH"
+            sed -i 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/g' "$TOUCH"
+            sed -i 's/int update_touch_rawdata()/int update_touch_rawdata(void)/g' "$TOUCH"
+            sed -i -E 's/^([[:space:]]*(static[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$TOUCH"
+            sed -i -E 's/^([[:space:]]*(static[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$TOUCH"
+            echo "Fixed $TOUCH"
+          fi
+          find arch drivers kernel fs mm sound net -type f -name "*.c" 2>/dev/null | grep -v "hwconf_manager.c" | grep -v "xiaomi_touch.c" | while read file; do
             if grep -qE '^[[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*[\{;]' "$file" 2>/dev/null; then
               sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*\{/\1(void) {/g' "$file"
               sed -i -E 's/^([[:space:]]*(static[[:space:]]+|inline[[:space:]]+)?(void|int|char|long|bool|unsigned)[[:space:]]+[a-z_][a-zA-Z0-9_]*)[[:space:]]*\(\)[[:space:]]*;/\1(void);/g' "$file"
