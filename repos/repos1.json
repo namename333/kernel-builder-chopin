@@ -10,30 +10,31 @@
     "withKernelSU": true,
     "toolchains": [
       {
-        "repo": "https://github.com/kdrag0n/proton-clang",
-        "branch": "master",
-        "name": "proton-clang",
+        "url": "https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20260208-release/Clang-15.0.7-20260208.tar.gz",
+        "name": "ZyC-clang",
         "binPath": ["bin"]
       }
     ],
     "ccache": false,
     "params": {
       "ARCH": "arm64",
-      "CC": "proton-clang/bin/clang",
+      "CC": "ZyC-clang/bin/clang",
       "externalCommand": {
-        "CROSS_COMPILE": "proton-clang/bin/aarch64-linux-gnu-",
-        "CROSS_COMPILE_ARM32": "proton-clang/bin/arm-linux-gnueabi-",
-        "LD": "proton-clang/bin/ld.lld",
-        "AR": "proton-clang/bin/llvm-ar",
-        "NM": "proton-clang/bin/llvm-nm",
-        "OBJCOPY": "proton-clang/bin/llvm-objcopy",
-        "OBJDUMP": "proton-clang/bin/llvm-objdump",
-        "READELF": "proton-clang/bin/llvm-readelf",
-        "OBJSIZE": "proton-clang/bin/llvm-size",
-        "STRIP": "proton-clang/bin/llvm-strip",
-        "LDGOLD": "proton-clang/bin/aarch64-linux-gnu-ld.gold",
-        "LLVM_AR": "proton-clang/bin/llvm-ar",
-        "LLVM_DIS": "proton-clang/bin/llvm-dis"
+        "HOSTCC": "gcc",
+        "HOSTCXX": "g++",
+        "HOSTLD": "ld",
+        "CLANG_TRIPLE": "aarch64-linux-gnu-",
+        "CROSS_COMPILE": "aarch64-linux-gnu-",
+        "CROSS_COMPILE_ARM32": "arm-linux-gnueabi-",
+        "LD": "ZyC-clang/bin/ld.lld",
+        "AR": "ZyC-clang/bin/llvm-ar",
+        "NM": "ZyC-clang/bin/llvm-nm",
+        "OBJCOPY": "ZyC-clang/bin/llvm-objcopy",
+        "OBJDUMP": "ZyC-clang/bin/llvm-objdump",
+        "READELF": "ZyC-clang/bin/llvm-readelf",
+        "STRIP": "ZyC-clang/bin/llvm-strip",
+        "LLVM_AR": "ZyC-clang/bin/llvm-ar",
+        "LLVM_DIS": "ZyC-clang/bin/llvm-dis"
       }
     },
     "AnyKernel3": {
