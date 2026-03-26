@@ -172,8 +172,14 @@ jobs:
       - name: "🔧 Patch source for Clang compatibility"
         working-directory: ${{ env.KERNEL_NAME }}
         run: |
-          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/g' arch/arm64/kernel/hwconf_manager.c
-          echo "Patch applied"
+          # 全局禁用 strict-prototypes（老内核 + Clang 15 兼容）
+          # 找到 KBUILD_CFLAGS 第一行赋值，追加 -Wno-strict-prototypes
+          grep -n "^KBUILD_CFLAGS" Makefile | head -5
+          sed -i '/^KBUILD_CFLAGS[[:space:]]*:=/ { /Wno-strict-prototypes/! s/$/ -Wno-strict-prototypes/; }' Makefile
+          # 如果没找到赋值行，直接追加
+          grep -q "Wno-strict-prototypes" Makefile || echo 'KBUILD_CFLAGS += -Wno-strict-prototypes' >> Makefile
+          echo "=== Verify patch ==="
+          grep "strict-prototypes" Makefile || echo "not found in Makefile, appended"
 
       - name: "👍 Make defconfig"
         working-directory: ${{ env.KERNEL_NAME }}
